@@ -107,7 +107,7 @@ mod tests {
     }
 
     fn service_a_with_enum(c: &mut Container) -> Arc<ServiceAEnum> {
-        c.build("service_a_trait", |_container: &mut Container| {
+        c.build("service_a_enum", |_container: &mut Container| {
             Arc::from(ServiceAEnum::ServiceA(ServiceA{uuid: Uuid::new_v4()}))
         })
     }
@@ -188,7 +188,7 @@ mod tests {
         let c = &mut Container::new();
         let service_a_with_trait = service_a_with_trait(c);
         let service_a_with_trait_mock = Arc::new(ServiceAEnum::ServiceAMock(Box::from(ServiceAMock{}) as Box<dyn ServiceATrait>));
-        c.set("service_a_trait", service_a_with_trait_mock.clone());
+        c.set("service_a_enum", service_a_with_trait_mock.clone());
         let service_with_trait_dependency_on_a_instance = service_with_enum_dependency_on_a(c);
         assert_eq!(service_with_trait_dependency_on_a_instance.service_a.get_uuid(), service_a_with_trait_mock.get_uuid());
         assert_ne!(service_a_with_trait.get_uuid(), service_a_with_trait_mock.get_uuid());

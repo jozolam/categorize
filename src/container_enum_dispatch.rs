@@ -50,9 +50,7 @@ mod tests {
         type Service = ServiceEnum;
 
         fn insert(&mut self, name: &str, instance: Option<Arc<ServiceEnum>>) {
-            // let write = self.lock.write().unwrap();
             self.storage.write().unwrap().insert(name.to_string(), instance);
-            // drop(write);
         }
 
         fn get(&self, key: &str) -> Option<Option<Arc<ServiceEnum>>> {

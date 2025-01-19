@@ -4,7 +4,7 @@ use std::sync::Arc;
 trait ContainerTrait {
     type Service;
     fn insert(&mut self, key: &str, value: Option<Arc<Self::Service>>);
-    fn get(&self, key: &str) -> Option<&Option<Arc<Self::Service>>>;
+    fn get(&self, key: &str) -> Option<Option<Arc<Self::Service>>>;
     fn build(
         &mut self,
         name: &str,
@@ -29,18 +29,19 @@ trait ContainerTrait {
 mod tests {
     use std::ops::Deref;
     use std::str::FromStr;
+    use std::sync::RwLock;
     use uuid::Uuid;
     use super::*;
 
 
     struct ContainerWithEnumDispatch {
-        storage: HashMap<String, Option<Arc<ServiceEnum>>>,
+        storage: RwLock<HashMap<String, Option<Arc<ServiceEnum>>>>,
     }
 
     impl ContainerWithEnumDispatch {
         fn new() -> ContainerWithEnumDispatch {
             ContainerWithEnumDispatch {
-                storage: HashMap::new(),
+                storage: RwLock::new(HashMap::new()),
             }
         }
     }
@@ -49,11 +50,19 @@ mod tests {
         type Service = ServiceEnum;
 
         fn insert(&mut self, name: &str, instance: Option<Arc<ServiceEnum>>) {
-            self.storage.insert(name.to_string(), instance);
+            // let write = self.lock.write().unwrap();
+            self.storage.write().unwrap().insert(name.to_string(), instance);
+            // drop(write);
         }
 
-        fn get(&self, key: &str) -> Option<&Option<Arc<ServiceEnum>>> {
-            self.storage.get(key)
+        fn get(&self, key: &str) -> Option<Option<Arc<ServiceEnum>>> {
+            match self.storage.read().unwrap().get(key) {
+                Some(a) => match a {
+                    Some(b) => Some(Some(b.clone())),
+                    None => Some(None),
+                },
+                None => None
+            }
         }
     }
 

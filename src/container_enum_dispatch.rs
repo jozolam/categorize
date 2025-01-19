@@ -17,7 +17,7 @@ trait ContainerTrait {
             },
             None => {
                 self.insert(name, None);
-                let v = Arc::from(builder(self));
+                let v = Arc::new(builder(self));
                 self.insert(name, Some(v.clone()));
                 v
             }
@@ -114,7 +114,7 @@ mod tests {
 
     fn service_a_with_trait(c: &mut ContainerWithEnumDispatch) -> Arc<Box<dyn ServiceATrait>> {
         match c.build("service_a_trait", |_container: &mut ContainerWithEnumDispatch| {
-            ServiceEnum::ServiceAWithTrait(Arc::new(Box::from(ServiceA{uuid: Uuid::new_v4()}) as Box<dyn ServiceATrait>))
+            ServiceEnum::ServiceAWithTrait(Arc::new(Box::new(ServiceA{uuid: Uuid::new_v4()}) as Box<dyn ServiceATrait>))
         }).deref() {
             ServiceEnum::ServiceAWithTrait(a) => a.clone(),
             _ => panic!("not a ServiceAEnum"),
@@ -184,7 +184,7 @@ mod tests {
 
     fn service_a(c: &mut ContainerWithEnumDispatch) -> Arc<ServiceA> {
         match c.build("service_a", |_container: &mut ContainerWithEnumDispatch| {
-            ServiceEnum::ServiceA(Arc::from(ServiceA{uuid: Uuid::new_v4()}))
+            ServiceEnum::ServiceA(Arc::new(ServiceA{uuid: Uuid::new_v4()}))
         }).deref() {
             ServiceEnum::ServiceA(a)=> Arc::clone(&a),
             _ => panic!("Not a ServiceA"),
@@ -193,7 +193,7 @@ mod tests {
 
     fn service_b(c: &mut ContainerWithEnumDispatch) -> Arc<ServiceB> {
         match c.build("service_b", |container: &mut ContainerWithEnumDispatch| -> ServiceEnum {
-            ServiceEnum::ServiceB(Arc::from(ServiceB{service_a: service_a(container)}))
+            ServiceEnum::ServiceB(Arc::new(ServiceB{service_a: service_a(container)}))
     }).deref() {
             ServiceEnum::ServiceB(a) => Arc::clone(&a),
             _ => panic!("Not a ServiceB"),
@@ -203,7 +203,7 @@ mod tests {
     fn circular_a(c: &mut ContainerWithEnumDispatch) -> Arc<CircularA> {
         match c.build("circular_a", |container: &mut ContainerWithEnumDispatch| -> ServiceEnum {
             circular_b(container);
-            ServiceEnum::CircularA(Arc::from(CircularA{}))
+            ServiceEnum::CircularA(Arc::new(CircularA{}))
         }).deref() {
             ServiceEnum::CircularA(a) => Arc::clone(&a),
             _ => panic!("Not a CircularA"),
@@ -213,7 +213,7 @@ mod tests {
     fn circular_b(c: &mut ContainerWithEnumDispatch) -> Arc<CircularB> {
         match c.build("circular_b", |container: &mut ContainerWithEnumDispatch| -> ServiceEnum {
             circular_a(container);
-            ServiceEnum::CircularB(Arc::from(CircularB{}))
+            ServiceEnum::CircularB(Arc::new(CircularB{}))
         }).deref() {
             ServiceEnum::CircularB(a) => Arc::clone(&a),
             _ => panic!("Not a CircularB"),
@@ -277,7 +277,7 @@ mod tests {
     fn mock_service_a_with_enum() {
         let c = &mut ContainerWithEnumDispatch::new();
         let service_a_with_trait = service_a_with_trait(c);
-        c.insert("service_a_trait", Some(Arc::new(ServiceEnum::ServiceAWithEnum(Arc::new(ServiceAEnum::ServiceAMock(Box::from(ServiceAMock {}) as Box<dyn ServiceATrait>))))));
+        c.insert("service_a_trait", Some(Arc::new(ServiceEnum::ServiceAWithEnum(Arc::new(ServiceAEnum::ServiceAMock(Box::new(ServiceAMock {}) as Box<dyn ServiceATrait>))))));
         let service_with_trait_dependency_on_a_instance = service_with_enum_dependency_on_a(c);
         assert_eq!(service_with_trait_dependency_on_a_instance.service_a.get_uuid(), ServiceAMock{}.get_uuid());
         assert_ne!(service_a_with_trait.get_uuid(), ServiceAMock{}.get_uuid());

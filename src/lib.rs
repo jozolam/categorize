@@ -31,7 +31,7 @@ impl Container {
             },
             None => {
                 self.storage.insert(name.to_string(), None);
-                let v = Arc::from(builder(self));
+                let v = builder(self);
                 self.storage
                     .insert(name.to_string(), Some(Arc::clone(&v) as Arc<dyn Any + Send + Sync>));
                 v
@@ -96,37 +96,37 @@ mod tests {
 
     fn service_a(c: &mut Container) -> Arc<ServiceA> {
         c.build("service_a", |_container: &mut Container| {
-            Arc::from(ServiceA{uuid: Uuid::new_v4()})
+            Arc::new(ServiceA{uuid: Uuid::new_v4()})
         })
     }
 
     fn service_a_with_trait(c: &mut Container) -> Arc<Box<dyn ServiceATrait>> {
         c.build("service_a_trait", |_container: &mut Container| {
-            Arc::from(Box::new(ServiceA{uuid: Uuid::new_v4()}) as Box<dyn ServiceATrait>)
+            Arc::new(Box::new(ServiceA{uuid: Uuid::new_v4()}) as Box<dyn ServiceATrait>)
         })
     }
 
     fn service_a_with_enum(c: &mut Container) -> Arc<ServiceAEnum> {
         c.build("service_a_enum", |_container: &mut Container| {
-            Arc::from(ServiceAEnum::ServiceA(ServiceA{uuid: Uuid::new_v4()}))
+            Arc::new(ServiceAEnum::ServiceA(ServiceA{uuid: Uuid::new_v4()}))
         })
     }
 
     fn service_with_direct_dependency_on_a(c: &mut Container) -> Arc<ServiceWithDirectDependencyOnA> {
         c.build("service_with_direct_dependency_on_a", |container: &mut Container| {
-            Arc::from(ServiceWithDirectDependencyOnA{service_a: service_a(container)})
+            Arc::new(ServiceWithDirectDependencyOnA{service_a: service_a(container)})
         })
     }
 
     fn service_with_trait_dependency_on_a(c: &mut Container) -> Arc<ServiceWithTraitDependencyOnA> {
         c.build("service_with_trait_dependency_on_a", |container: &mut Container| {
-            Arc::from(ServiceWithTraitDependencyOnA{service_a: service_a_with_trait(container)})
+            Arc::new(ServiceWithTraitDependencyOnA{service_a: service_a_with_trait(container)})
         })
     }
 
     fn service_with_enum_dependency_on_a(c: &mut Container) -> Arc<ServiceWithEnumDependencyOnA> {
         c.build("service_with_trait_dependency_on_a", |container: &mut Container| {
-            Arc::from(ServiceWithEnumDependencyOnA{service_a: service_a_with_enum(container)})
+            Arc::new(ServiceWithEnumDependencyOnA{service_a: service_a_with_enum(container)})
         })
     }
 
@@ -187,7 +187,7 @@ mod tests {
     fn mock_service_a_with_enum() {
         let c = &mut Container::new();
         let service_a_with_trait = service_a_with_trait(c);
-        let service_a_with_trait_mock = Arc::new(ServiceAEnum::ServiceAMock(Box::from(ServiceAMock{}) as Box<dyn ServiceATrait>));
+        let service_a_with_trait_mock = Arc::new(ServiceAEnum::ServiceAMock(Box::new(ServiceAMock{}) as Box<dyn ServiceATrait>));
         c.set("service_a_enum", service_a_with_trait_mock.clone());
         let service_with_trait_dependency_on_a_instance = service_with_enum_dependency_on_a(c);
         assert_eq!(service_with_trait_dependency_on_a_instance.service_a.get_uuid(), service_a_with_trait_mock.get_uuid());

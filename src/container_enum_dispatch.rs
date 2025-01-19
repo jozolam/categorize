@@ -13,7 +13,7 @@ trait ContainerTrait {
         match self.get(name) {
             Some(a) => match a {
                 Some(i) => i.clone(),
-                None => panic!("circular reference"),
+                None => panic!("circular dependency detected for {}", name),
             },
             None => {
                 self.insert(name, None);
@@ -27,7 +27,9 @@ trait ContainerTrait {
 
 #[cfg(test)]
 mod tests {
+    use std::any::Any;
     use std::ops::Deref;
+    use std::panic::{catch_unwind};
     use std::str::FromStr;
     use std::sync::RwLock;
     use uuid::Uuid;
@@ -162,6 +164,7 @@ mod tests {
         // circular_b: Arc<CircularB>
     }
 
+    #[derive(Debug)]
     struct CircularB {
         // circular_a: Arc<CircularA>
     }
@@ -280,9 +283,24 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
     fn circular_reference_panics() {
-        let c = &mut ContainerWithEnumDispatch::new();
-        circular_b(c);
+         fn get_panic_message(payload: &(dyn Any + Send)) -> Option<&str> {
+                // taken from: https://github.com/rust-lang/rust/blob/4b9f4b221b92193c7e95b1beb502c6eb32c3b613/library/std/src/panicking.rs#L194-L200
+                match payload.downcast_ref::<&'static str>() {
+                    Some(msg) => Some(*msg),
+                    None => match payload.downcast_ref::<String>() {
+                        Some(msg) => Some(msg.as_str()),
+                        None => None,
+                    },
+                }
+         }
+
+
+        let payload = catch_unwind(|| {
+            let c = &mut ContainerWithEnumDispatch::new();
+            circular_b(c)
+        }).unwrap_err();
+
+        assert_eq!(get_panic_message(payload.as_ref()).unwrap(), "circular dependency detected for circular_b");
     }
 }

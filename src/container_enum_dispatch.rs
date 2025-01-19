@@ -285,7 +285,7 @@ mod tests {
     #[test]
     fn circular_dependency_panics() {
          fn get_panic_message(payload: &(dyn Any + Send)) -> Option<&str> {
-                // taken from: https://github.com/rust-lang/rust/blob/4b9f4b221b92193c7e95b1beb502c6eb32c3b613/library/std/src/panicking.rs#L194-L200
+                // taken from: https://github.com/guswynn/panic-message/blob/main/src/lib.rs
                 match payload.downcast_ref::<&'static str>() {
                     Some(msg) => Some(*msg),
                     None => match payload.downcast_ref::<String>() {

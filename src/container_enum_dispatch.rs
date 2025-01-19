@@ -29,34 +29,50 @@ struct ContainerWithEnumDispatch {
     storage: HashMap<String, Option<Arc<ServiceEnum>>>,
 }
 
+trait ContainerTrait {
+    type Service;
+
+    fn insert(&mut self, key: String, value: Option<Arc<Self::Service>>);
+    fn get(&self, key: &str) -> Option<&Option<Arc<Self::Service>>>;
+
+    fn build(
+        &mut self,
+        name: &str,
+        builder: fn(container: &mut Self) -> Self::Service,
+    ) -> Arc<Self::Service> {
+        match self.get(name) {
+            Some(a) => match a {
+                Some(i) => i.clone(),
+                None => panic!("circular reference"),
+            },
+            None => {
+                self.insert(name.to_string(), None);
+                let v = Arc::from(builder(self));
+                self.insert(name.to_string(), Some(v.clone()));
+                v
+            }
+        }
+    }
+
+}
+
 impl ContainerWithEnumDispatch {
     fn new() -> ContainerWithEnumDispatch {
         ContainerWithEnumDispatch {
             storage: HashMap::new(),
         }
     }
+}
 
-    fn set(&mut self, name: &str, instance: Arc<ServiceEnum>) {
-        self.storage.insert(name.to_string(), Some(instance));
+impl ContainerTrait for ContainerWithEnumDispatch {
+    type Service = ServiceEnum;
+
+    fn insert(&mut self, name: String, instance: Option<Arc<ServiceEnum>>) {
+        self.storage.insert(name.to_string(), instance);
     }
 
-    fn build(
-        &mut self,
-        name: &str,
-        builder: fn(container: &mut ContainerWithEnumDispatch) -> ServiceEnum,
-    ) -> Arc<ServiceEnum> {
-        match self.storage.get(name) {
-            Some(a) => match a {
-                Some(i) => i.clone(),
-                None => panic!("circular reference"),
-            },
-            None => {
-                self.storage.insert(name.to_string(), None);
-                let v = Arc::from(builder(self));
-                self.storage.insert(name.to_string(), Some(v.clone()));
-                v
-            }
-        }
+    fn get(&self, key: &str) -> Option<&Option<Arc<ServiceEnum>>> {
+        self.storage.get(key)
     }
 }
 
@@ -75,10 +91,14 @@ mod tests {
         }
     }
 
+    // fn tratsaf (container: &mut impl ContainerTrait) -> ServiceEnum {
+    //     ServiceEnum::ServiceB(Arc::from(ServiceB{service_a: service_a(container)}))
+    // }
+
     fn service_b(c: &mut ContainerWithEnumDispatch) -> Arc<ServiceB> {
-        match c.build("service_b", |container: &mut ContainerWithEnumDispatch| {
+        match c.build("service_b", |container: &mut ContainerWithEnumDispatch| -> ServiceEnum {
             ServiceEnum::ServiceB(Arc::from(ServiceB{service_a: service_a(container)}))
-        }).deref() {
+    }).deref() {
             ServiceEnum::ServiceB(a) => Arc::clone(&a),
             _ => panic!("Not a ServiceB"),
         }

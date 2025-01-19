@@ -1,40 +1,10 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use uuid::Uuid;
-
-trait ServiceATrait: Send+Sync {
-    fn get_uuid(&self) -> Uuid;
-}
-
-struct ServiceA {
-    pub uuid: Uuid,
-}
-
-impl ServiceATrait for ServiceA {
-    fn get_uuid(&self) -> Uuid {
-        self.uuid
-    }
-}
-
-struct ServiceB {
-    service_a: Arc<ServiceA>,
-}
-
-enum ServiceEnum {
-    ServiceA(Arc<ServiceA>),
-    ServiceB(Arc<ServiceB>),
-}
-
-struct ContainerWithEnumDispatch {
-    storage: HashMap<String, Option<Arc<ServiceEnum>>>,
-}
 
 trait ContainerTrait {
     type Service;
-
-    fn insert(&mut self, key: String, value: Option<Arc<Self::Service>>);
+    fn insert(&mut self, key: &str, value: Option<Arc<Self::Service>>);
     fn get(&self, key: &str) -> Option<&Option<Arc<Self::Service>>>;
-
     fn build(
         &mut self,
         name: &str,
@@ -46,41 +16,164 @@ trait ContainerTrait {
                 None => panic!("circular reference"),
             },
             None => {
-                self.insert(name.to_string(), None);
+                self.insert(name, None);
                 let v = Arc::from(builder(self));
-                self.insert(name.to_string(), Some(v.clone()));
+                self.insert(name, Some(v.clone()));
                 v
             }
         }
-    }
-
-}
-
-impl ContainerWithEnumDispatch {
-    fn new() -> ContainerWithEnumDispatch {
-        ContainerWithEnumDispatch {
-            storage: HashMap::new(),
-        }
-    }
-}
-
-impl ContainerTrait for ContainerWithEnumDispatch {
-    type Service = ServiceEnum;
-
-    fn insert(&mut self, name: String, instance: Option<Arc<ServiceEnum>>) {
-        self.storage.insert(name.to_string(), instance);
-    }
-
-    fn get(&self, key: &str) -> Option<&Option<Arc<ServiceEnum>>> {
-        self.storage.get(key)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use std::ops::Deref;
+    use std::str::FromStr;
     use uuid::Uuid;
     use super::*;
+
+
+    struct ContainerWithEnumDispatch {
+        storage: HashMap<String, Option<Arc<ServiceEnum>>>,
+    }
+
+    impl ContainerWithEnumDispatch {
+        fn new() -> ContainerWithEnumDispatch {
+            ContainerWithEnumDispatch {
+                storage: HashMap::new(),
+            }
+        }
+    }
+
+    impl ContainerTrait for ContainerWithEnumDispatch {
+        type Service = ServiceEnum;
+
+        fn insert(&mut self, name: &str, instance: Option<Arc<ServiceEnum>>) {
+            self.storage.insert(name.to_string(), instance);
+        }
+
+        fn get(&self, key: &str) -> Option<&Option<Arc<ServiceEnum>>> {
+            self.storage.get(key)
+        }
+    }
+
+
+    struct ServiceA {
+        pub uuid: Uuid,
+    }
+
+    trait ServiceATrait: Send+Sync {
+        fn get_uuid(&self) -> Uuid;
+    }
+    
+    impl ServiceATrait for ServiceA {
+        fn get_uuid(&self) -> Uuid {
+            self.uuid
+        }
+    }
+
+    struct ServiceAMock {}
+    impl ServiceATrait for ServiceAMock {
+        fn get_uuid(&self) -> Uuid {
+            Uuid::from_str("dccfce5b-726e-43a1-8433-b7c1911b5af4").unwrap()
+        }
+    }
+
+    struct ServiceWithDirectDependencyOnA {
+        pub service_a: Arc<ServiceA>,
+    }
+
+    struct ServiceWithTraitDependencyOnA {
+        pub service_a: Arc<Box<dyn ServiceATrait>>,
+    }
+
+    enum ServiceAEnum {
+        ServiceA(ServiceA),
+        ServiceAMock(Box<dyn ServiceATrait>),
+    }
+
+    impl ServiceAEnum {
+        fn get_uuid(&self) -> Uuid {
+            match self {
+                ServiceAEnum::ServiceA(a) => a.uuid,
+                ServiceAEnum::ServiceAMock(a) => a.get_uuid(),
+            }
+        }
+    }
+
+    struct ServiceWithEnumDependencyOnA {
+        pub service_a: Arc<ServiceAEnum>,
+    }
+
+    fn service_a_with_trait(c: &mut ContainerWithEnumDispatch) -> Arc<Box<dyn ServiceATrait>> {
+        match c.build("service_a_trait", |_container: &mut ContainerWithEnumDispatch| {
+            ServiceEnum::ServiceAWithTrait(Arc::new(Box::from(ServiceA{uuid: Uuid::new_v4()}) as Box<dyn ServiceATrait>))
+        }).deref() {
+            ServiceEnum::ServiceAWithTrait(a) => a.clone(),
+            _ => panic!("not a ServiceAEnum"),
+        }
+    }
+
+    fn service_a_with_enum(c: &mut ContainerWithEnumDispatch) -> Arc<ServiceAEnum> {
+        match c.build("service_a_trait", |_container: &mut ContainerWithEnumDispatch| {
+            ServiceEnum::ServiceAWithEnum(Arc::new(ServiceAEnum::ServiceA(ServiceA{uuid: Uuid::new_v4()})))
+        }).deref() {
+            ServiceEnum::ServiceAWithEnum(a) => a.clone(),
+            _ => panic!("not a ServiceAEnum"),
+        }
+    }
+
+    fn service_with_direct_dependency_on_a(c: &mut ContainerWithEnumDispatch) -> Arc<ServiceWithDirectDependencyOnA> {
+        match c.build("service_with_direct_dependency_on_a", |container: &mut ContainerWithEnumDispatch| {
+            ServiceEnum::ServiceWithDirectDependencyOnA(Arc::new(ServiceWithDirectDependencyOnA{service_a: service_a(container)}))
+        }).deref() {
+            ServiceEnum::ServiceWithDirectDependencyOnA(a) => a.clone(),
+            _ => panic!("not a ServiceWithDirectDependencyOnA"),
+        }
+    }
+
+    fn service_with_trait_dependency_on_a(c: &mut ContainerWithEnumDispatch) -> Arc<ServiceWithTraitDependencyOnA> {
+        match c.build("service_with_trait_dependency_on_a", |container: &mut ContainerWithEnumDispatch| {
+            ServiceEnum::ServiceWithTraitDependencyOnA(Arc::new(ServiceWithTraitDependencyOnA{service_a: service_a_with_trait(container)}))
+        }).deref() {
+            ServiceEnum::ServiceWithTraitDependencyOnA(a) => a.clone(),
+            _ => panic!("not a ServiceWithTraitDependencyOnA"),
+        }
+    }
+
+    fn service_with_enum_dependency_on_a(c: &mut ContainerWithEnumDispatch) -> Arc<ServiceWithEnumDependencyOnA> {
+        match c.build("service_with_trait_dependency_on_a", |container: &mut ContainerWithEnumDispatch| {
+            ServiceEnum::ServiceWithEnumDependencyOnA(Arc::new(ServiceWithEnumDependencyOnA{service_a: service_a_with_enum(container)}))
+        }).deref() {
+            ServiceEnum::ServiceWithEnumDependencyOnA(a) => a.clone(),
+            _ => panic!("not a ServiceWithEnumDependencyOnA"),
+        }
+    }
+
+    struct ServiceB {
+        service_a: Arc<ServiceA>,
+    }
+
+
+    struct CircularA {
+        // circular_b: Arc<CircularB>
+    }
+
+    struct CircularB {
+        // circular_a: Arc<CircularA>
+    }
+
+    enum ServiceEnum {
+        ServiceA(Arc<ServiceA>),
+        ServiceAWithTrait(Arc<Box<dyn ServiceATrait>>),
+        ServiceAWithEnum(Arc<ServiceAEnum>),
+        ServiceB(Arc<ServiceB>),
+        ServiceWithDirectDependencyOnA(Arc<ServiceWithDirectDependencyOnA>),
+        ServiceWithTraitDependencyOnA(Arc<ServiceWithTraitDependencyOnA>),
+        ServiceWithEnumDependencyOnA(Arc<ServiceWithEnumDependencyOnA>),
+        CircularA(Arc<CircularA>),
+        CircularB(Arc<CircularB>),
+    }
 
     fn service_a(c: &mut ContainerWithEnumDispatch) -> Arc<ServiceA> {
         match c.build("service_a", |_container: &mut ContainerWithEnumDispatch| {
@@ -91,10 +184,6 @@ mod tests {
         }
     }
 
-    // fn tratsaf (container: &mut impl ContainerTrait) -> ServiceEnum {
-    //     ServiceEnum::ServiceB(Arc::from(ServiceB{service_a: service_a(container)}))
-    // }
-
     fn service_b(c: &mut ContainerWithEnumDispatch) -> Arc<ServiceB> {
         match c.build("service_b", |container: &mut ContainerWithEnumDispatch| -> ServiceEnum {
             ServiceEnum::ServiceB(Arc::from(ServiceB{service_a: service_a(container)}))
@@ -104,6 +193,25 @@ mod tests {
         }
     }
 
+    fn circular_a(c: &mut ContainerWithEnumDispatch) -> Arc<CircularA> {
+        match c.build("circular_a", |container: &mut ContainerWithEnumDispatch| -> ServiceEnum {
+            circular_b(container);
+            ServiceEnum::CircularA(Arc::from(CircularA{}))
+        }).deref() {
+            ServiceEnum::CircularA(a) => Arc::clone(&a),
+            _ => panic!("Not a CircularA"),
+        }
+    }
+
+    fn circular_b(c: &mut ContainerWithEnumDispatch) -> Arc<CircularB> {
+        match c.build("circular_b", |container: &mut ContainerWithEnumDispatch| -> ServiceEnum {
+            circular_a(container);
+            ServiceEnum::CircularB(Arc::from(CircularB{}))
+        }).deref() {
+            ServiceEnum::CircularB(a) => Arc::clone(&a),
+            _ => panic!("Not a CircularB"),
+        }
+    }
 
     #[test]
     fn fetch_simple_service_from_bottom() {
@@ -111,5 +219,67 @@ mod tests {
         let service_a_instance = service_a(c);
         let service_b_instance = service_b(c);
         assert_eq!(service_b_instance.service_a.uuid, service_a_instance.uuid);
+    }
+
+    #[test]
+    fn fetch_simple_service_from_top() {
+        let c = &mut ContainerWithEnumDispatch::new();
+        let service_with_direct_dependency_on_a_instance = service_with_direct_dependency_on_a(c);
+        let service_a_instance = service_a(c);
+        assert_eq!(service_with_direct_dependency_on_a_instance.service_a.uuid, service_a_instance.uuid);
+    }
+
+    #[test]
+    fn set_and_fetch_simple_service() {
+        let c = &mut ContainerWithEnumDispatch::new();
+        let service_a_instance = service_a(c);
+        c.insert("service_a", Some(Arc::new(ServiceEnum::ServiceA(Arc::new(ServiceA{uuid: Uuid::new_v4()})))));
+        let service_with_direct_dependency_on_a_instance = service_with_direct_dependency_on_a(c);
+        assert_ne!(service_with_direct_dependency_on_a_instance.service_a.uuid, service_a_instance.uuid);
+    }
+
+    #[test]
+    fn fetch_service_with_trait_dependency_on_a_trait() {
+        let c = &mut ContainerWithEnumDispatch::new();
+        let service_a_with_trait = service_a_with_trait(c);
+        let service_with_trait_dependency_on_a_instance = service_with_trait_dependency_on_a(c);
+        assert_eq!(service_with_trait_dependency_on_a_instance.service_a.get_uuid(), service_a_with_trait.get_uuid());
+    }
+
+    #[test]
+    fn mock_service_a_with_trait() {
+        let c = &mut ContainerWithEnumDispatch::new();
+        let service_a_with_trait = service_a_with_trait(c);
+        let service_a_with_trait_mock = Arc::new(Box::new(ServiceAMock {}) as Box<dyn ServiceATrait>);
+        c.insert("service_a_trait", Some(Arc::new(ServiceEnum::ServiceAWithTrait(service_a_with_trait_mock.clone()))));
+        let service_with_trait_dependency_on_a_instance = service_with_trait_dependency_on_a(c);
+        assert_eq!(service_with_trait_dependency_on_a_instance.service_a.get_uuid(), service_a_with_trait_mock.get_uuid());
+        assert_ne!(service_a_with_trait.get_uuid(), service_a_with_trait_mock.get_uuid());
+    }
+
+
+    #[test]
+    fn fetch_service_with_enum_dependency_on_a_enum() {
+        let c = &mut ContainerWithEnumDispatch::new();
+        let service_a_with_enum_instance = service_a_with_enum(c);
+        let service_with_enum_dependency_on_a_instance = service_with_enum_dependency_on_a(c);
+        assert_eq!(service_with_enum_dependency_on_a_instance.service_a.get_uuid(), service_a_with_enum_instance.get_uuid());
+    }
+
+    #[test]
+    fn mock_service_a_with_enum() {
+        let c = &mut ContainerWithEnumDispatch::new();
+        let service_a_with_trait = service_a_with_trait(c);
+        c.insert("service_a_trait", Some(Arc::new(ServiceEnum::ServiceAWithEnum(Arc::new(ServiceAEnum::ServiceAMock(Box::from(ServiceAMock {}) as Box<dyn ServiceATrait>))))));
+        let service_with_trait_dependency_on_a_instance = service_with_enum_dependency_on_a(c);
+        assert_eq!(service_with_trait_dependency_on_a_instance.service_a.get_uuid(), ServiceAMock{}.get_uuid());
+        assert_ne!(service_a_with_trait.get_uuid(), ServiceAMock{}.get_uuid());
+    }
+
+    #[test]
+    #[should_panic]
+    fn test_invalid_matrices_multiplication() {
+        let c = &mut ContainerWithEnumDispatch::new();
+        circular_b(c);
     }
 }

@@ -278,7 +278,7 @@ mod tests {
 
     #[test]
     #[should_panic]
-    fn test_invalid_matrices_multiplication() {
+    fn circular_reference_panics() {
         let c = &mut ContainerWithEnumDispatch::new();
         circular_b(c);
     }

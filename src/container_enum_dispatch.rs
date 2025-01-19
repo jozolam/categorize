@@ -115,7 +115,7 @@ mod tests {
             ServiceEnum::ServiceAWithTrait(Arc::new(Box::new(ServiceA{uuid: Uuid::new_v4()}) as Box<dyn ServiceATrait>))
         }).deref() {
             ServiceEnum::ServiceAWithTrait(a) => a.clone(),
-            _ => panic!("not a ServiceAEnum"),
+            _ => panic!("not a ServiceATrait"),
         }
     }
 

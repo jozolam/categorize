@@ -54,14 +54,9 @@ mod tests {
         }
 
         fn get(&self, key: &str) -> Option<Option<Arc<ServiceEnum>>> {
-            self.storage
-                .read()
-                .unwrap()
-                .get(key)
-                .map(
-                    |x|
-                        x.as_ref().map(|y| y.clone())
-                )
+            self.storage.read().unwrap().get(key).map(
+                |x| x.as_ref().map(|y| y.clone())
+            )
         }
     }
 

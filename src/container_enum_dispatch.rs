@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn circular_reference_panics() {
+    fn circular_dependency_panics() {
          fn get_panic_message(payload: &(dyn Any + Send)) -> Option<&str> {
                 // taken from: https://github.com/rust-lang/rust/blob/4b9f4b221b92193c7e95b1beb502c6eb32c3b613/library/std/src/panicking.rs#L194-L200
                 match payload.downcast_ref::<&'static str>() {

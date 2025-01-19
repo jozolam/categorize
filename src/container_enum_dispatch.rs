@@ -54,13 +54,14 @@ mod tests {
         }
 
         fn get(&self, key: &str) -> Option<Option<Arc<ServiceEnum>>> {
-            match self.storage.read().unwrap().get(key) {
-                Some(a) => match a {
-                    Some(b) => Some(Some(b.clone())),
-                    None => Some(None),
-                },
-                None => None
-            }
+            self.storage
+                .read()
+                .unwrap()
+                .get(key)
+                .map(
+                    |x|
+                        x.as_ref().map(|y| y.clone())
+                )
         }
     }
 

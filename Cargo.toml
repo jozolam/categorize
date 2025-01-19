@@ -3,4 +3,5 @@ name = "testing"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
+[dev-dependencies]
+uuid = { version = "1.12.0", features = ["v4"] }

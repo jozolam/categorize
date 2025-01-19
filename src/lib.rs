@@ -1,3 +1,5 @@
+mod container_enum_dispatch;
+
 use std::any::Any;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -40,76 +42,155 @@ impl Container {
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+    use uuid::Uuid;
     use super::*;
 
-    struct Example1Impl {
-        pub test: String,
+
+    trait ServiceATrait: Send+Sync {
+        fn get_uuid(&self) -> Uuid;
     }
 
-    struct Example11Impl {}
-
-    trait Example1ImpTrait:Send+Sync {
-        fn hello(&self) -> String;
+    struct ServiceA {
+        pub uuid: Uuid,
     }
 
-    impl Example1ImpTrait for Example1Impl {
-        fn hello(&self) -> String {
-            self.test.clone()
+    impl ServiceATrait for ServiceA {
+        fn get_uuid(&self) -> Uuid {
+            self.uuid
         }
     }
 
-    impl Example1ImpTrait for Example11Impl {
-        fn hello(&self) -> String {
-            "2".to_string()
+    struct ServiceAMock {}
+    impl ServiceATrait for ServiceAMock {
+        fn get_uuid(&self) -> Uuid {
+            Uuid::from_str("dccfce5b-726e-43a1-8433-b7c1911b5af4").unwrap()
         }
     }
 
-    struct Example2Impl {
-        pub example1impl: Arc<dyn Example1ImpTrait>, // will be wired with trait and this can be used for mocking
+    struct ServiceWithDirectDependencyOnA {
+        pub service_a: Arc<ServiceA>,
     }
 
-    impl Example1Impl {
-        pub fn new(text: String) -> Example1Impl {
-            Example1Impl { test: text }
+    struct ServiceWithTraitDependencyOnA {
+        pub service_a: Arc<Box<dyn ServiceATrait>>,
+    }
+
+    enum ServiceAEnum {
+        ServiceA(ServiceA),
+        ServiceAMock(Box<dyn ServiceATrait>),
+    }
+
+    impl ServiceAEnum {
+        fn get_uuid(&self) -> Uuid {
+            match self {
+                ServiceAEnum::ServiceA(a) => a.uuid,
+                ServiceAEnum::ServiceAMock(a) => a.get_uuid(),
+            }
         }
     }
 
-    impl Example2Impl {
-        fn new(example1impl: Arc<dyn Example1ImpTrait>) -> Example2Impl {
-            Example2Impl { example1impl }
-        }
+    struct ServiceWithEnumDependencyOnA {
+        pub service_a: Arc<ServiceAEnum>,
     }
 
-    fn get_example1(c: &mut Container) -> Arc<Example1Impl> {
-        c.build("example1", |_container: &mut Container| {
-            Arc::from(Example1Impl::new("default".to_string()))
+    fn service_a(c: &mut Container) -> Arc<ServiceA> {
+        c.build("service_a", |_container: &mut Container| {
+            Arc::from(ServiceA{uuid: Uuid::new_v4()})
         })
     }
 
-    fn get_example2(c: &mut Container) -> Arc<Example2Impl> {
-        c.build("example2", |container: &mut Container| {
-            Arc::from(Example2Impl::new(get_example1(container)))
+    fn service_a_with_trait(c: &mut Container) -> Arc<Box<dyn ServiceATrait>> {
+        c.build("service_a_trait", |_container: &mut Container| {
+            Arc::from(Box::new(ServiceA{uuid: Uuid::new_v4()}) as Box<dyn ServiceATrait>)
+        })
+    }
+
+    fn service_a_with_enum(c: &mut Container) -> Arc<ServiceAEnum> {
+        c.build("service_a_trait", |_container: &mut Container| {
+            Arc::from(ServiceAEnum::ServiceA(ServiceA{uuid: Uuid::new_v4()}))
+        })
+    }
+
+    fn service_with_direct_dependency_on_a(c: &mut Container) -> Arc<ServiceWithDirectDependencyOnA> {
+        c.build("service_with_direct_dependency_on_a", |container: &mut Container| {
+            Arc::from(ServiceWithDirectDependencyOnA{service_a: service_a(container)})
+        })
+    }
+
+    fn service_with_trait_dependency_on_a(c: &mut Container) -> Arc<ServiceWithTraitDependencyOnA> {
+        c.build("service_with_trait_dependency_on_a", |container: &mut Container| {
+            Arc::from(ServiceWithTraitDependencyOnA{service_a: service_a_with_trait(container)})
+        })
+    }
+
+    fn service_with_enum_dependency_on_a(c: &mut Container) -> Arc<ServiceWithEnumDependencyOnA> {
+        c.build("service_with_trait_dependency_on_a", |container: &mut Container| {
+            Arc::from(ServiceWithEnumDependencyOnA{service_a: service_a_with_enum(container)})
         })
     }
 
     #[test]
-    fn hello() {
-        let mut c = Container::new();
-        let s1 = get_example1(&mut c);
-        assert_eq!("default".to_string(), s1.test);
-        let mut c = Container::new();
-        c.set("example1", Arc::from(Example1Impl::new("ahoj".to_string())));
-        let s1 = get_example1(&mut c);
-        let s2 = get_example2(&mut c);
-        assert_eq!("ahoj".to_string(), s1.test);
-        assert_eq!("ahoj".to_string(), s2.example1impl.hello());
+    fn fetch_simple_service_from_bottom() {
+        let c = &mut Container::new();
+        let service_a_instance = service_a(c);
+        let service_with_direct_dependency_on_a_instance = service_with_direct_dependency_on_a(c);
+        assert_eq!(service_with_direct_dependency_on_a_instance.service_a.uuid, service_a_instance.uuid);
+    }
 
-        let mut c = Container::new();
-        c.set(
-            "example2",
-            Arc::from(Example2Impl::new(Arc::from(Example11Impl {}))),
-        );
-        let s2 = get_example2(&mut c);
-        assert_eq!("2".to_string(), s2.example1impl.hello());
+    #[test]
+    fn fetch_simple_service_from_top() {
+        let c = &mut Container::new();
+        let service_with_direct_dependency_on_a_instance = service_with_direct_dependency_on_a(c);
+        let service_a_instance = service_a(c);
+        assert_eq!(service_with_direct_dependency_on_a_instance.service_a.uuid, service_a_instance.uuid);
+    }
+
+    #[test]
+    fn set_and_fetch_simple_service() {
+        let c = &mut Container::new();
+        let service_a_instance = service_a(c);
+        c.set("service_a", Arc::new(ServiceA{uuid: Uuid::new_v4()}));
+        let service_with_direct_dependency_on_a_instance = service_with_direct_dependency_on_a(c);
+        assert_ne!(service_with_direct_dependency_on_a_instance.service_a.uuid, service_a_instance.uuid);
+    }
+
+    #[test]
+    fn fetch_service_with_trait_dependency_on_a_trait() {
+        let c = &mut Container::new();
+        let service_a_with_trait = service_a_with_trait(c);
+        let service_with_trait_dependency_on_a_instance = service_with_trait_dependency_on_a(c);
+        assert_eq!(service_with_trait_dependency_on_a_instance.service_a.get_uuid(), service_a_with_trait.get_uuid());
+    }
+
+    #[test]
+    fn mock_service_a_with_trait() {
+        let c = &mut Container::new();
+        let service_a_with_trait = service_a_with_trait(c);
+        let service_a_with_trait_mock = Arc::new(Box::new(ServiceAMock{}) as Box<dyn ServiceATrait>);
+        c.set("service_a_trait", service_a_with_trait_mock.clone());
+        let service_with_trait_dependency_on_a_instance = service_with_trait_dependency_on_a(c);
+        assert_eq!(service_with_trait_dependency_on_a_instance.service_a.get_uuid(), service_a_with_trait_mock.get_uuid());
+        assert_ne!(service_a_with_trait.get_uuid(), service_a_with_trait_mock.get_uuid());
+    }
+
+
+    #[test]
+    fn fetch_service_with_enum_dependency_on_a_enum() {
+        let c = &mut Container::new();
+        let service_a_with_enum_instance = service_a_with_enum(c);
+        let service_with_enum_dependency_on_a_instance = service_with_enum_dependency_on_a(c);
+        assert_eq!(service_with_enum_dependency_on_a_instance.service_a.get_uuid(), service_a_with_enum_instance.get_uuid());
+    }
+
+    #[test]
+    fn mock_service_a_with_enum() {
+        let c = &mut Container::new();
+        let service_a_with_trait = service_a_with_trait(c);
+        let service_a_with_trait_mock = Arc::new(ServiceAEnum::ServiceAMock(Box::from(ServiceAMock{}) as Box<dyn ServiceATrait>));
+        c.set("service_a_trait", service_a_with_trait_mock.clone());
+        let service_with_trait_dependency_on_a_instance = service_with_enum_dependency_on_a(c);
+        assert_eq!(service_with_trait_dependency_on_a_instance.service_a.get_uuid(), service_a_with_trait_mock.get_uuid());
+        assert_ne!(service_a_with_trait.get_uuid(), service_a_with_trait_mock.get_uuid());
     }
 }

@@ -19,7 +19,7 @@ trait ContainerTrait {
             None => {
                 self.insert(name, None);
                 let v = Arc::new(builder(self));
-                self.insert(name, Some(v.clone())).unwrap()
+                self.insert(name, Some(v)).unwrap()
             }
         }
     }

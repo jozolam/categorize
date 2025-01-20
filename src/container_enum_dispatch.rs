@@ -3,8 +3,9 @@ use std::sync::Arc;
 
 trait ContainerTrait {
     type Service;
-    fn insert(&mut self, key: &str, value: Option<Arc<Self::Service>>);
-    fn get(&self, key: &str) -> Option<Option<Arc<Self::Service>>>;
+    fn insert(&mut self, name: &str, value: Option<Arc<Self::Service>>) -> Option<Arc<Self::Service>>;
+    fn replace(&mut self, name: &str, value: Option<Arc<Self::Service>>);
+    fn get(&self, name: &str) -> Option<Option<Arc<Self::Service>>>;
     fn build(
         &mut self,
         name: &str,
@@ -18,8 +19,7 @@ trait ContainerTrait {
             None => {
                 self.insert(name, None);
                 let v = Arc::new(builder(self));
-                self.insert(name, Some(v.clone()));
-                v
+                self.insert(name, Some(v.clone())).unwrap()
             }
         }
     }
@@ -51,8 +51,43 @@ mod tests {
     impl ContainerTrait for ContainerWithEnumDispatch {
         type Service = ServiceEnum;
 
-        fn insert(&mut self, name: &str, instance: Option<Arc<ServiceEnum>>) {
-            self.storage.write().unwrap().insert(name.to_string(), instance);
+        fn insert(&mut self, name: &str, instance: Option<Arc<ServiceEnum>>) -> Option<Arc<ServiceEnum>> {
+            let mut lock = self.storage.write().unwrap();
+            let value = lock.get(name);
+            match value {
+                Some(value) => {
+                    match value {
+                        Some(s) => {
+                            Some(s.clone()) // we want to avoid unintentional overwriting of the same service
+                        }
+                        None => {
+                            match instance {
+                                Some(a) => {
+                                    lock.insert(name.to_string(), Some(a.clone()));
+                                    Some(a)
+                                }
+                                None => None
+                            }
+                        }
+                    }
+                }
+                None => {
+                    match instance {
+                        Some(s) => {
+                            lock.insert(name.to_string(), Some(s.clone()));
+                            Some(s)
+                        }
+                        None => {
+                            lock.insert(name.to_string(), None);
+                            None
+                        }
+                    }
+                }
+            }
+        }
+
+        fn replace(&mut self, name: &str, value: Option<Arc<Self::Service>>) {
+            self.storage.write().unwrap().insert(name.to_string(), value);
         }
 
         fn get(&self, key: &str) -> Option<Option<Arc<ServiceEnum>>> {
@@ -239,7 +274,7 @@ mod tests {
     fn set_and_fetch_simple_service() {
         let c = &mut ContainerWithEnumDispatch::new();
         let service_a_instance = service_a(c);
-        c.insert("service_a", Some(Arc::new(ServiceEnum::ServiceA(Arc::new(ServiceA{uuid: Uuid::new_v4()})))));
+        c.replace("service_a", Some(Arc::new(ServiceEnum::ServiceA(Arc::new(ServiceA{uuid: Uuid::new_v4()})))));
         let service_with_direct_dependency_on_a_instance = service_with_direct_dependency_on_a(c);
         assert_ne!(service_with_direct_dependency_on_a_instance.service_a.uuid, service_a_instance.uuid);
     }
@@ -257,7 +292,7 @@ mod tests {
         let c = &mut ContainerWithEnumDispatch::new();
         let service_a_with_trait = service_a_with_trait(c);
         let service_a_with_trait_mock = Arc::new(Box::new(ServiceAMock {}) as Box<dyn ServiceATrait>);
-        c.insert("service_a_trait", Some(Arc::new(ServiceEnum::ServiceAWithTrait(service_a_with_trait_mock.clone()))));
+        c.replace("service_a_trait", Some(Arc::new(ServiceEnum::ServiceAWithTrait(service_a_with_trait_mock.clone()))));
         let service_with_trait_dependency_on_a_instance = service_with_trait_dependency_on_a(c);
         assert_eq!(service_with_trait_dependency_on_a_instance.service_a.get_uuid(), service_a_with_trait_mock.get_uuid());
         assert_ne!(service_a_with_trait.get_uuid(), service_a_with_trait_mock.get_uuid());
@@ -276,7 +311,7 @@ mod tests {
     fn mock_service_a_with_enum() {
         let c = &mut ContainerWithEnumDispatch::new();
         let service_a_with_trait = service_a_with_trait(c);
-        c.insert("service_a_trait", Some(Arc::new(ServiceEnum::ServiceAWithEnum(Arc::new(ServiceAEnum::ServiceAMock(Box::new(ServiceAMock {}) as Box<dyn ServiceATrait>))))));
+        c.replace("service_a_trait", Some(Arc::new(ServiceEnum::ServiceAWithEnum(Arc::new(ServiceAEnum::ServiceAMock(Box::new(ServiceAMock {}) as Box<dyn ServiceATrait>))))));
         let service_with_trait_dependency_on_a_instance = service_with_enum_dependency_on_a(c);
         assert_eq!(service_with_trait_dependency_on_a_instance.service_a.get_uuid(), ServiceAMock{}.get_uuid());
         assert_ne!(service_a_with_trait.get_uuid(), ServiceAMock{}.get_uuid());
